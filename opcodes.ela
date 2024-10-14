@@ -1,0 +1,57 @@
+
+Operator :: enum {
+  Halt,
+  Assign,
+  Add,
+  Sub,
+  Mul,
+  Div,
+  BrEq,
+  BrNeq,
+  BrLt,
+  BrGt,
+  Jump,
+}
+
+operator_names: string[];
+
+get_operator_names :: () {
+  type := #type Operator;
+  for field; type.fields {
+    operator_names ~= field.name;
+  }
+}
+
+OperandValue :: union {
+  v_destination: s64;
+  v_int: s64;
+}
+
+OperandTag :: enum {
+  Reference,
+  Integer,
+}
+
+Operand :: struct {
+  tag: int;
+  value: OperandValue;
+  to_string :: () -> string {
+    if tag == OperandTag.Integer {
+      return $"{value.v_int}";
+    } else if tag == OperandTag.Reference {
+      return $"*{value.v_destination}";
+    }
+    return "Invalid Operand";
+  }
+}
+
+TAC :: struct {
+  left: Operand;
+  right: Operand;
+  destination: s64;
+  op: s8;
+  
+  to_string :: () -> string {
+    return $"left: {left}, right: {right}, destination: {destination}, operator: {operator_names[op]}";
+  }
+}
