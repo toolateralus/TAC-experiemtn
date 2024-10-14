@@ -3,150 +3,119 @@
 #include "opcodes.ela"
 #compiler_flags "-g"
 
-make_int_operand :: (i: s64) -> Operand {
-  value: OperandValue;
-  value.v_int = i;
-  return {
-    OperandTag.Integer,
-    value
-  };
-}
-
-make_ref_operand :: (dest: s64) -> Operand {
-  value: OperandValue;
-  value.v_destination = dest;
-  return {
-    OperandTag.Reference,
-    value
-  };
-}
-
-codes: TAC[];
+variables: int[string];
+functions: TAC[]*[string];
 
 current_destination: s64;
-
 get_destination :: () -> s64 {
   return current_destination++;
 }
 
-get_value :: (op : Operand, results: s64[]*) -> s64 {
-  if op.tag == OperandTag.Reference {
-    return (*results)[op.value.v_destination];
-  } else {
-    return op.value.v_int;
-  }
-}
-
-execute_tac :: (codes: TAC[]) -> s64[] {
+execute_tac :: (codes: TAC[]*) -> s64[] {
   results := #make(s64[], codes.length + 1);
   ip: s64;
+  
   while ip < codes.length {
-    code := codes[ip];
+    code := (*codes)[ip];
+    if code.op == .Halt then break;
 
-    if code.op == Operator.Halt then break;
-
-    if code.op == Operator.Jump {
-      ip = code.destination;
-      printf("jumping to code %d\n", (s32)ip);
-      continue;
-    } else if code.op == Operator.BrEq {
-      target := get_value(code.left, &results);
-      expected := get_value(code.right, &results);
-      if target == expected {
+    // Control flow
+    {
+      if code.op == .Jump {
         ip = code.destination;
-        printf("BrEq jumping to code: %d\n", (s32)ip);
-      }
-      continue;
-    } else if code.op == Operator.BrNeq {
-      target := get_value(code.left, &results);
-      expected := get_value(code.right, &results);
-      if target != expected {
-        ip = code.destination;
-        printf("BrNeq jumping to code: %d\n", (s32)ip);
-      }
-      continue;
-    } else if code.op == Operator.BrLt {
-      target := get_value(code.left, &results);
-      expected := get_value(code.right, &results);
-      if target < expected {
-        ip = code.destination;
-        printf("BrLt jumping to code: \n\t%s {\ntarget: %ld,\nexpected: %ld}\n", codes[ip].to_string().data, target, expected);
+        continue;
+      } else if code.op == .BrEq {
+        target := get_value(code.left, &results);
+        expected := get_value(code.right, &results);
+        if target == expected {
+          ip = code.destination;
+          continue;
+        }
+      } else if code.op == .BrNeq {
+        target := get_value(code.left, &results);
+        expected := get_value(code.right, &results);
+        if target != expected {
+          ip = code.destination;
+          continue;
+        }
+      } else if code.op == .BrLt {
+        target := get_value(code.left, &results);
+        expected := get_value(code.right, &results);
+        if target < expected {
+          ip = code.destination;
+          continue;
+        }
+      } else if code.op == .BrGt {
+        target := get_value(code.left, &results);
+        expected := get_value(code.right, &results);
+        if target > expected {
+          ip = code.destination;
+          printf("BrGt jumping to code: %d\n", (s32)ip);
+        }
         continue;
       }
-    } else if code.op == Operator.BrGt {
-      target := get_value(code.left, &results);
-      expected := get_value(code.right, &results);
-      if target > expected {
-        ip = code.destination;
-        printf("BrGt jumping to code: %d\n", (s32)ip);
-      }
-      continue;
     }
+    
+    // Binary operations
+    {
+      lvalue: s64 = get_value(code.left, &results);
+      rvalue: s64 = get_value(code.right, &results);
 
-    lvalue: s64 = get_value(code.left, &results);
-    rvalue: s64 = get_value(code.right, &results);
-
-    if code.op == Operator.Assign {
-      results[code.destination] = get_value(code.left, &results);
-    } else if code.op == Operator.Add {
-      results[code.destination] = lvalue + rvalue;
-    } else if code.op == Operator.Sub {
-      results[code.destination] = lvalue - rvalue;
-    } else if code.op == Operator.Div {
-      results[code.destination] = lvalue / rvalue;
-    } else if code.op == Operator.Mul {
-      results[code.destination] = lvalue * rvalue;
+      if code.op == .Assign {
+        results[code.destination] = get_value(code.left, &results);
+      } else if code.op == .Add {
+        results[code.destination] = lvalue + rvalue;
+      } else if code.op == .Sub {
+        results[code.destination] = lvalue - rvalue;
+      } else if code.op == .Div {
+        results[code.destination] = lvalue / rvalue;
+      } else if code.op == .Mul {
+        results[code.destination] = lvalue * rvalue;
+      }
     }
     ip++;
   }
   return results;
 }
 
-test_while_loop :: () {
-  code: TAC;
-
-  // Initialize loop counter, i = 0
-  loop_var_decl_index := codes.length;
-  code.left = make_int_operand(0);
-  code.op = Operator.Assign;
-  code.destination = 0;
-  codes ~= code;
+test_while_loop :: () -> TAC[] {
+  codes: TAC[];
   
-  // Condition check label
-  loop_cond_expr_index := codes.length;
+  //? [0]
+  //* i = 0;
+  codes ~= make_assign(make_int_operand(0), 0);
+  
+  //? [1]
+  //* while i < 100, jump -> 3;
+  codes ~= make_binary(3, .BrLt,
+    make_ref_operand(0),
+    make_int_operand(100)
+  );
 
-  // Condition: i < 100
-  code.left = make_ref_operand(loop_var_decl_index);
-  code.right = make_int_operand(100); 
-  code.op = Operator.BrLt; 
-  code.destination = loop_cond_expr_index + 2;
-  codes ~= code;
+  //? [2]
+  //* End of loop (when i >= 100)
+  codes ~= make_nullary(.Halt);
+  
+  //? [3]
+  //* i += 1    
+  codes ~= make_binary(0, .Add,
+    make_ref_operand(0),
+    make_int_operand(1) // add 1 to *0;
+  );
 
-  // End of loop (when i >= 100)
-  code.op = Operator.Halt;
-  codes ~= code;
-
-  // Increment i
-  code.left = make_ref_operand(loop_var_decl_index); 
-  code.right = make_int_operand(1);
-  code.op = Operator.Add;
-  code.destination = loop_var_decl_index;
-  codes ~= code;
-
-  // Jump back to the condition check
-  code.op = Operator.Jump;
-  code.destination = loop_cond_expr_index;  // Point back to condition check
-  codes ~= code;
+  //? [4]
+  //* Jump back to the condition check
+  codes ~= make_unary(1, .Jump);
+  
+  return codes;
 }
-
-
 
 main :: () {
   get_operator_names();
 
-  test_while_loop();
-
-  results := execute_tac(codes);
+  codes := test_while_loop();
+  
+  results := execute_tac(&codes);
 
   i : int;
   for result; results {

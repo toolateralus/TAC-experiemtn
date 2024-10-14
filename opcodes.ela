@@ -1,4 +1,3 @@
-
 Operator :: enum {
   Halt,
   Assign,
@@ -11,10 +10,11 @@ Operator :: enum {
   BrLt,
   BrGt,
   Jump,
+  Alloca,
 }
 
 operator_names: string[];
-
+ 
 get_operator_names :: () {
   type := #type Operator;
   for field; type.fields {
@@ -45,13 +45,76 @@ Operand :: struct {
   }
 }
 
+get_value :: (op : Operand, results: s64[]*) -> s64 {
+  if op.tag == OperandTag.Reference {
+    return (*results)[op.value.v_destination];
+  } else {
+    return op.value.v_int;
+  }
+}
+
 TAC :: struct {
   left: Operand;
   right: Operand;
   destination: s64;
   op: s8;
-  
   to_string :: () -> string {
     return $"left: {left}, right: {right}, destination: {destination}, operator: {operator_names[op]}";
   }
+}
+
+make_int_operand :: (i: s64) -> Operand {
+  value: OperandValue;
+  value.v_int = i;
+  return {
+    OperandTag.Integer,
+    value
+  };
+}
+
+make_ref_operand :: (dest: s64) -> Operand {
+  value: OperandValue;
+  value.v_destination = dest;
+  return {
+    OperandTag.Reference,
+    value
+  };
+}
+
+make_alloca :: (size: s64, destination) -> TAC {
+  code: TAC;
+  code.op = .Alloca;
+  code.left = make_int_operand(size);
+  code.destination = destination;
+  return code;
+}
+
+make_assign :: (value: Operand, destination: s64) -> TAC {
+  code: TAC;
+  code.left = value;
+  code.op = .Assign;
+  code.destination = destination;
+  return code;
+}
+
+make_binary :: (destination: s64, op: int, left: Operand, right: Operand) -> TAC {
+  code: TAC;
+  code.left = left;
+  code.right = right;
+  code.destination = destination;
+  code.op = op;
+  return code;
+}
+
+make_nullary :: (op: int) -> TAC {
+  code: TAC;
+  code.op = op;
+  return code;
+}
+
+make_unary :: (destination: s64, op: int) -> TAC {
+  code: TAC;
+  code.op = op;
+  code.destination = destination;
+  return code;
 }
