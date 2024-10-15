@@ -22,51 +22,45 @@ execute_tac :: (codes: TAC[]*) -> s64[] {
 
     // Control flow
     {
-      should_continue := switch code.op {
+      switch code.op {
         .Jump:  {
           ip = code.destination;
-          return true;
+          continue;
         }
         .BrEq:  {
           target := get_value(code.left, &results);
           expected := get_value(code.right, &results);
           if target == expected {
             ip = code.destination;
-            return true;
+            continue;
           }
-          return false;
         }
         .BrNeq: {
           target := get_value(code.left, &results);
           expected := get_value(code.right, &results);
           if target != expected {
             ip = code.destination;
-            return true;
+            continue;
           }
-          return false;
         }
         .BrLt:  {
           target := get_value(code.left, &results);
           expected := get_value(code.right, &results);
           if target < expected {
             ip = code.destination;
-            return true;
+            continue;
           }
-          return false;
         }
         .BrGt:  {
           target := get_value(code.left, &results);
           expected := get_value(code.right, &results);
           if target > expected {
             ip = code.destination;
-            return true;
+            continue;
           }
-          return false;
         }
       }
       
-      if should_continue
-        then continue;
     }
 
     // Binary operations
