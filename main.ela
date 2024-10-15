@@ -1,7 +1,7 @@
 #import core;
 
 #include "opcodes.ela"
-#compiler_flags "-g"
+#compiler_flags "-O3"
 
 variables: int[string];
 functions: TAC[]*[string];
@@ -13,7 +13,7 @@ get_destination :: () -> s64 {
 }
 
 execute_tac :: (codes: TAC[]*) -> s64[] {
-  results := s64[]{codes.length + 1};
+  results := #make(s64[], codes.length + 1);
   ip: s64;
 
   while ip < codes.length {
@@ -22,7 +22,6 @@ execute_tac :: (codes: TAC[]*) -> s64[] {
 
     // Control flow
     {
-
       should_continue := switch code.op {
         .Jump:  {
           ip = code.destination;
@@ -65,30 +64,22 @@ execute_tac :: (codes: TAC[]*) -> s64[] {
           return false;
         }
       }
-      if should_continue then continue;
+      
+      if should_continue
+        then continue;
     }
 
     // Binary operations
     {
       lvalue: s64 = get_value(code.left, &results);
       rvalue: s64 = get_value(code.right, &results);
-
+      
       switch code.op {
-        .Assign: {
-          results[code.destination] = get_value(code.left, &results);
-        }
-        .Add: {
-          results[code.destination] = lvalue + rvalue;
-        }
-        .Sub: {
-          results[code.destination] = lvalue - rvalue;
-        }
-        .Div: {
-          results[code.destination] = lvalue / rvalue;
-        }
-        .Mul: {
-          results[code.destination] = lvalue * rvalue;
-        }
+        .Assign: { results[code.destination] = get_value(code.left, &results); }
+        .Add: { results[code.destination] = lvalue + rvalue; }
+        .Sub: { results[code.destination] = lvalue - rvalue; }
+        .Div: { results[code.destination] = lvalue / rvalue; }
+        .Mul: { results[code.destination] = lvalue * rvalue; }
       }
     }
     ip++;
@@ -98,6 +89,16 @@ execute_tac :: (codes: TAC[]*) -> s64[] {
 
 test_while_loop :: () -> TAC[] {
   codes: TAC[];
+
+  /* 
+    MOV EAX, 0
+  BEGIN_LOOP:
+    JLT 100, LOOP_BODY
+    HLT
+  LOOP_BODY:
+    ADD EAX, 1
+    JUMP BEGIN_LOOP
+   */
 
   //? [0]
   //* i = 0;
