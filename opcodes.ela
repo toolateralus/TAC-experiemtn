@@ -23,13 +23,21 @@ get_operator_names :: () {
 }
 
 OperandValue :: union {
-  v_destination: s64;
+  v_float: float64;
   v_int: s64;
+  
+  // refers another code.
+  v_reference: s64;
+  
+  // size of this alloc. (stack/heap)
+  v_alloc_size: s64;
 }
 
 OperandTag :: enum {
   Reference,
   Integer,
+  Float,
+  Alloc,
 }
 
 Operand :: struct {
@@ -39,15 +47,15 @@ Operand :: struct {
     if tag == OperandTag.Integer {
       return $"{value.v_int}";
     } else if tag == OperandTag.Reference {
-      return $"*{value.v_destination}";
-    }
+      return $"*{value.v_reference}";
+    } 
     return "Invalid Operand";
   }
 }
 
 get_value :: (op : Operand, results: s64[]*) -> s64 {
   if op.tag == OperandTag.Reference {
-    return (*results)[op.value.v_destination];
+    return (*results)[op.value.v_reference];
   } else {
     return op.value.v_int;
   }
@@ -57,7 +65,7 @@ TAC :: struct {
   left: Operand;
   right: Operand;
   destination: s64;
-  op: s8;
+  op: s32;
   to_string :: () -> string {
     return $"left: {left}, right: {right}, destination: {destination}, operator: {operator_names[op]}";
   }
@@ -74,7 +82,7 @@ make_int_operand :: (i: s64) -> Operand {
 
 make_ref_operand :: (dest: s64) -> Operand {
   value: OperandValue;
-  value.v_destination = dest;
+  value.v_reference = dest;
   return {
     OperandTag.Reference,
     value

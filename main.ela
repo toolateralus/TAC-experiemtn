@@ -7,70 +7,88 @@ variables: int[string];
 functions: TAC[]*[string];
 
 current_destination: s64;
+
 get_destination :: () -> s64 {
   return current_destination++;
 }
 
 execute_tac :: (codes: TAC[]*) -> s64[] {
-  results := #make(s64[], codes.length + 1);
+  results := s64[]{codes.length + 1};
   ip: s64;
-  
+
   while ip < codes.length {
     code := (*codes)[ip];
     if code.op == .Halt then break;
 
     // Control flow
     {
-      if code.op == .Jump {
-        ip = code.destination;
-        continue;
-      } else if code.op == .BrEq {
-        target := get_value(code.left, &results);
-        expected := get_value(code.right, &results);
-        if target == expected {
+
+      should_continue := switch code.op {
+        .Jump:  {
           ip = code.destination;
-          continue;
+          return true;
         }
-      } else if code.op == .BrNeq {
-        target := get_value(code.left, &results);
-        expected := get_value(code.right, &results);
-        if target != expected {
-          ip = code.destination;
-          continue;
+        .BrEq:  {
+          target := get_value(code.left, &results);
+          expected := get_value(code.right, &results);
+          if target == expected {
+            ip = code.destination;
+            return true;
+          }
+          return false;
         }
-      } else if code.op == .BrLt {
-        target := get_value(code.left, &results);
-        expected := get_value(code.right, &results);
-        if target < expected {
-          ip = code.destination;
-          continue;
+        .BrNeq: {
+          target := get_value(code.left, &results);
+          expected := get_value(code.right, &results);
+          if target != expected {
+            ip = code.destination;
+            return true;
+          }
+          return false;
         }
-      } else if code.op == .BrGt {
-        target := get_value(code.left, &results);
-        expected := get_value(code.right, &results);
-        if target > expected {
-          ip = code.destination;
-          printf("BrGt jumping to code: %d\n", (s32)ip);
+        .BrLt:  {
+          target := get_value(code.left, &results);
+          expected := get_value(code.right, &results);
+          if target < expected {
+            ip = code.destination;
+            return true;
+          }
+          return false;
         }
-        continue;
+        .BrGt:  {
+          target := get_value(code.left, &results);
+          expected := get_value(code.right, &results);
+          if target > expected {
+            ip = code.destination;
+            return true;
+          }
+          return false;
+        }
       }
+      if should_continue then continue;
     }
-    
+
     // Binary operations
     {
       lvalue: s64 = get_value(code.left, &results);
       rvalue: s64 = get_value(code.right, &results);
 
-      if code.op == .Assign {
-        results[code.destination] = get_value(code.left, &results);
-      } else if code.op == .Add {
-        results[code.destination] = lvalue + rvalue;
-      } else if code.op == .Sub {
-        results[code.destination] = lvalue - rvalue;
-      } else if code.op == .Div {
-        results[code.destination] = lvalue / rvalue;
-      } else if code.op == .Mul {
-        results[code.destination] = lvalue * rvalue;
+      switch code.op {
+        .Assign: {
+          results[code.destination] = get_value(code.left, &results);
+        }
+        .Add: {
+          results[code.destination] = lvalue + rvalue;
+        }
+        .Sub: {
+          results[code.destination] = lvalue - rvalue;
+        }
+        .Div: {
+          results[code.destination] = lvalue / rvalue;
+        }
+        .Mul: {
+          results[code.destination] = lvalue * rvalue;
+        }
       }
     }
     ip++;
@@ -80,11 +98,11 @@ execute_tac :: (codes: TAC[]*) -> s64[] {
 
 test_while_loop :: () -> TAC[] {
   codes: TAC[];
-  
+
   //? [0]
   //* i = 0;
   codes ~= make_assign(make_int_operand(0), 0);
-  
+
   //? [1]
   //* while i < 100, jump -> 3;
   codes ~= make_binary(3, .BrLt,
@@ -95,9 +113,9 @@ test_while_loop :: () -> TAC[] {
   //? [2]
   //* End of loop (when i >= 100)
   codes ~= make_nullary(.Halt);
-  
+
   //? [3]
-  //* i += 1    
+  //* i += 1
   codes ~= make_binary(0, .Add,
     make_ref_operand(0),
     make_int_operand(1) // add 1 to *0;
@@ -106,7 +124,7 @@ test_while_loop :: () -> TAC[] {
   //? [4]
   //* Jump back to the condition check
   codes ~= make_unary(1, .Jump);
-  
+
   return codes;
 }
 
@@ -114,7 +132,7 @@ main :: () {
   get_operator_names();
 
   codes := test_while_loop();
-  
+
   results := execute_tac(&codes);
 
   i : int;
