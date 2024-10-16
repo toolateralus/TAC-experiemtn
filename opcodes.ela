@@ -1,23 +1,44 @@
 Operator :: enum {
   Halt,
+  /* Binary Operators */
   Assign,
   Add,
   Sub,
   Mul,
   Div,
+  /* Binary Operators */
+  
+  /* Control Flow  */
   BrEq,
   BrNeq,
   BrLt,
   BrGt,
   Jump,
-  
+  /* Control Flow  */
+
+  /* Stack and Function */  
   Push,
   Pop,
-  
+  PushArg,
+  PopArg,
   Call,
   Return,
   ReturnVoid,
+  /* Stack and Function */  
 }
+
+is_binary_operator :: (op: int) -> bool {
+  return op >= .Assign && op <= .Div;
+}
+
+is_control_flow_operator :: (op: int) -> bool {
+  return op >= .BrEq && op <= .Jump;
+}
+
+is_stack_or_function_operator :: (op: int) -> bool {
+  return op >= .Push && op <= .ReturnVoid;
+}
+
 
 operator_names: string[];
  
@@ -55,18 +76,19 @@ Value :: struct {
   }
 }
 
-get_value :: (op : Value, results: Value[]*) -> Value {
-  if op.type == ValueTag.Reference {
-    return (*results)[op.value.v_reference];
-  } else {
-    return op;
+// TODO: make this dereference nested references.  For some reason using a while loop instead of the if causes infinite loop.
+
+get_value :: (value: Value, address_space: Value[]*) -> Value {
+  if value.type == ValueTag.Reference {
+    value = (*address_space)[value.value.v_reference];
   }
+  return value;
 }
 
 TAC :: struct {
   left: Value;
   right: Value;
-  destination: s64;
+  destination: s64; // negative indices are used to access native functions.
   op: s32;
   to_string :: () -> string {
     return $"left: {left}, right: {right}, destination: {destination}, operator: {operator_names[op]}";
@@ -130,10 +152,10 @@ make_unary :: (destination: s64, op: int) -> TAC {
   return code;
 }
 
-make_push :: (operand: Value) -> TAC {
+make_push :: (value: Value) -> TAC {
   code: TAC;
   code.op = .Push;
-  code.left = operand;
+  code.left = value;
   return code;
 }
 
@@ -149,5 +171,12 @@ make_call :: (address: Value, return_addr: s64) -> TAC {
   code.left = address;
   code.destination = return_addr;
   code.op = .Call;
+  return code;
+}
+
+make_push_arg :: (value: Value) -> TAC {
+  code: TAC;
+  code.left = value;
+  code.op = .PushArg;
   return code;
 }

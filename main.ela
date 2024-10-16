@@ -5,54 +5,113 @@
 
 current_destination: s64;
 
+                        // Arguments.
+#alias NativeFunction :: Value(Value[]*, Value[]*)*;
+
+// This is a map because we use negative indices.
+native_functions: NativeFunction[];
+
+print :: (args: Value[]*, address_space: Value[]*) -> Value {
+  value: Value;
+  for arg; *args {
+    print($"{get_value(arg, address_space)}");
+  }
+  return value;
+}
+
+init_native_functions :: () {
+  native_functions ~= &print; // * This never gets called but since we use negative indices turned absolute theres' no way to access 0 index.
+  native_functions ~= &print;
+}
+
 get_destination :: () -> s64 {
   return current_destination++;
 }
 
 execute_tac :: (codes: TAC[]*) -> Value[] {
-  values := #make(Value[], codes.length + 1);
+  values := #make(Value[], codes.length);
+  
   stack_ptr: u16 = 0;
   stack: Value[65536];
   return_address: s64;
+  
+  argument_stack: Value[256];
+  argument_stack_ptr: u8;
+  
   ip: s64;
+  
+  push :: (value: Value) {
+    stack[stack_ptr] = value;
+    stack_ptr++;
+    if stack_ptr >= 65536 {
+      printf("Stack overflow in bitcode interpreter.\n");
+      exit(1);
+    }
+  }
+  
+  pop :: () -> Value {
+    stack_ptr--;
+    value := stack[stack_ptr];
+    return value;
+  }
+  
+  call_native_function :: (addr: s64) {
+    func : NativeFunction = native_functions[addr];
+    if func {
+      arguments : Value[];
+      while argument_stack_ptr > 0 {
+        arguments ~= argument_stack[argument_stack_ptr];
+        argument_stack_ptr--;
+      }
+      value := func(&arguments, &values);
+      values[return_address] = value;
+      return_address = -1;
+    } else {
+      printf("Attempted to call a non-existent native function.. %ld\n", addr);
+      exit(1);
+    }
+  }
 
   while ip < codes.length {
     code := (*codes)[ip];
     
-    if code.op == .Halt 
-      then break;
+    if code.op == .Halt then break;
     
-    push :: (value: Value) {
-      stack[stack_ptr] = value;
-      stack_ptr++;
-      if stack_ptr >= 65536 {
-        printf("Stack overflow in bitcode interpreter.\n");
-        exit(1);
-      }
-    }
-    
-    pop :: () -> Value {
-      stack_ptr--;
-      value := stack[stack_ptr];
-      return value;
-    }
     
     // Stack && Functions
-    {
+    if is_stack_or_function_operator(code.op) {
       switch code.op {
+        .PushArg: {
+          argument_stack[argument_stack_ptr] = get_value(code.left, &values);
+          argument_stack_ptr++;
+        }
+        .PopArg: {
+          value := get_value(argument_stack[argument_stack_ptr], &values);
+          argument_stack_ptr--;
+          values[code.destination] = value;
+        }
         .Push: {
           push(get_value(code.left, &values));
-          continue;
         }
         .Pop: {
           values[code.destination] = pop();
-          continue;
+          if stack_ptr < 0 {
+            printf("Stack underflow\n");
+            exit(1);
+          }
         }
         .Call: {
           address := get_value(code.left, &values);
           push(make_int_operand(ip));
-          ip = address.value.v_int;
+          func_addr := address.value.v_int;
           return_address = code.destination;
+          if func_addr < 0 {
+            // we take the absolute here to avoid using a map for simple indices.
+            call_native_function(abs(func_addr));
+            ip++;
+          } else {
+            ip = func_addr;
+          }
           continue;
         }
         .Return: {
@@ -78,10 +137,7 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
           continue;
         }
       }
-    }
-
-    // Control flow
-    {
+    } else if is_control_flow_operator(code.op) {
       switch code.op {
         .Jump:  {
           ip = code.destination;
@@ -151,10 +207,7 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
           }
         }
       }
-    }
-
-    // Binary operations
-    {
+    } else if is_binary_operator(code.op) {
       lvalue := get_value(code.left, &values);
       rvalue := get_value(code.right, &values);
       
@@ -167,6 +220,10 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
             values[code.destination] = make_int_operand(lvalue.value.v_int + rvalue.value.v_int);
           } else if lvalue.type == .Float && rvalue.type == .Float {
             values[code.destination] = make_float_operand(lvalue.value.v_float + rvalue.value.v_float);
+          } else if lvalue.type == .Integer && rvalue.type == .Float {
+            values[code.destination] = make_float_operand(lvalue.value.v_int + rvalue.value.v_float);
+          } else if lvalue.type == .Float && rvalue.type == .Integer {
+            values[code.destination] = make_float_operand(lvalue.value.v_float + rvalue.value.v_int);
           }
         }
         .Sub: {
@@ -174,13 +231,10 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
             values[code.destination] = make_int_operand(lvalue.value.v_int - rvalue.value.v_int);
           } else if lvalue.type == .Float && rvalue.type == .Float {
             values[code.destination] = make_float_operand(lvalue.value.v_float - rvalue.value.v_float);
-          }
-        }
-        .Div: { 
-          if lvalue.type == .Integer && rvalue.type == .Integer {
-            values[code.destination] = make_int_operand(lvalue.value.v_int / rvalue.value.v_int);
-          } else if lvalue.type == .Float && rvalue.type == .Float {
-            values[code.destination] = make_float_operand(lvalue.value.v_float / rvalue.value.v_float);
+          } else if lvalue.type == .Integer && rvalue.type == .Float {
+            values[code.destination] = make_float_operand(lvalue.value.v_int - rvalue.value.v_float);
+          } else if lvalue.type == .Float && rvalue.type == .Integer {
+            values[code.destination] = make_float_operand(lvalue.value.v_float - rvalue.value.v_int);
           }
         }
         .Mul: { 
@@ -188,9 +242,26 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
             values[code.destination] = make_int_operand(lvalue.value.v_int * rvalue.value.v_int);
           } else if lvalue.type == .Float && rvalue.type == .Float {
             values[code.destination] = make_float_operand(lvalue.value.v_float * rvalue.value.v_float);
+          } else if lvalue.type == .Integer && rvalue.type == .Float {
+            values[code.destination] = make_float_operand(lvalue.value.v_int * rvalue.value.v_float);
+          } else if lvalue.type == .Float && rvalue.type == .Integer {
+            values[code.destination] = make_float_operand(lvalue.value.v_float * rvalue.value.v_int);
+          }
+        }
+        .Div: { 
+          if lvalue.type == .Integer && rvalue.type == .Integer {
+            values[code.destination] = make_int_operand(lvalue.value.v_int / rvalue.value.v_int);
+          } else if lvalue.type == .Float && rvalue.type == .Float {
+            values[code.destination] = make_float_operand(lvalue.value.v_float / rvalue.value.v_float);
+          } else if lvalue.type == .Integer && rvalue.type == .Float {
+            values[code.destination] = make_float_operand(lvalue.value.v_int / rvalue.value.v_float);
+          } else if lvalue.type == .Float && rvalue.type == .Integer {
+            values[code.destination] = make_float_operand(lvalue.value.v_float / rvalue.value.v_int);
           }
         }
       }
+    } else {
+      printf("Recieved an invalid operation... %s\n", operator_names[code.op].data);
     }
     
     ip++;
@@ -233,6 +304,10 @@ test_while_loop :: () -> TAC[] {
     make_ref_operand(0),
     make_int_operand(1) // add 1 to *0;
   );
+  
+  codes ~= make_push_arg(make_ref_operand(0));
+  
+  codes ~= make_call(make_int_operand(-1), 4);
 
   //? [4]
   //* Jump back to the condition check
@@ -243,13 +318,12 @@ test_while_loop :: () -> TAC[] {
 
 main :: () {
   get_operator_names();
-
+  init_native_functions();
   codes := test_while_loop();
   values := execute_tac(&codes);
-
   i : int;
   for result; values {
-    println($"result: {i}={result}");
+    println($"result: (*{i}) :: ({result})");
     i++;
   }
 }
