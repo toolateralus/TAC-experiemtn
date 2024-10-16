@@ -10,7 +10,13 @@ Operator :: enum {
   BrLt,
   BrGt,
   Jump,
-  Alloca,
+  
+  Push,
+  Pop,
+  
+  Call,
+  Return,
+  ReturnVoid,
 }
 
 operator_names: string[];
@@ -25,12 +31,8 @@ get_operator_names :: () {
 OperandValue :: union {
   v_float: float64;
   v_int: s64;
-  
   // refers another code.
   v_reference: s64;
-  
-  // size of this alloc. (stack/heap)
-  v_alloc_size: s64;
 }
 
 OperandTag :: enum {
@@ -41,23 +43,23 @@ OperandTag :: enum {
 }
 
 Operand :: struct {
-  tag: int;
+  type: int;
   value: OperandValue;
   to_string :: () -> string {
-    if tag == OperandTag.Integer {
+    if type == OperandTag.Integer {
       return $"{value.v_int}";
-    } else if tag == OperandTag.Reference {
+    } else if type == OperandTag.Reference {
       return $"*{value.v_reference}";
     } 
     return "Invalid Operand";
   }
 }
 
-get_value :: (op : Operand, results: s64[]*) -> s64 {
-  if op.tag == OperandTag.Reference {
+get_value :: (op : Operand, results: Operand[]*) -> Operand {
+  if op.type == OperandTag.Reference {
     return (*results)[op.value.v_reference];
   } else {
-    return op.value.v_int;
+    return op;
   }
 }
 
@@ -69,6 +71,15 @@ TAC :: struct {
   to_string :: () -> string {
     return $"left: {left}, right: {right}, destination: {destination}, operator: {operator_names[op]}";
   }
+}
+
+make_float_operand :: (f: float64) -> Operand {
+  value: OperandValue;
+  value.v_float = f;
+  return {
+    OperandTag.Float,
+    value
+  };
 }
 
 make_int_operand :: (i: s64) -> Operand {
@@ -87,14 +98,6 @@ make_ref_operand :: (dest: s64) -> Operand {
     OperandTag.Reference,
     value
   };
-}
-
-make_alloca :: (size: s64, destination) -> TAC {
-  code: TAC;
-  code.op = .Alloca;
-  code.left = make_int_operand(size);
-  code.destination = destination;
-  return code;
 }
 
 make_assign :: (value: Operand, destination: s64) -> TAC {
@@ -124,5 +127,27 @@ make_unary :: (destination: s64, op: int) -> TAC {
   code: TAC;
   code.op = op;
   code.destination = destination;
+  return code;
+}
+
+make_push :: (operand: Operand) -> TAC {
+  code: TAC;
+  code.op = .Push;
+  code.left = operand;
+  return code;
+}
+
+make_pop :: (destination: s64) -> TAC {
+  code: TAC;
+  code.op = .Pop;
+  code.destination = destination;
+  return code;
+}
+
+make_call :: (address: Operand, return_addr: s64) -> TAC {
+  code: TAC;
+  code.left = address;
+  code.destination = return_addr;
+  code.op = .Call;
   return code;
 }

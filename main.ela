@@ -1,10 +1,7 @@
 #import core;
 
 #include "opcodes.ela"
-#compiler_flags "-O3"
-
-variables: int[string];
-functions: TAC[]*[string];
+#compiler_flags "-g"
 
 current_destination: s64;
 
@@ -12,13 +9,76 @@ get_destination :: () -> s64 {
   return current_destination++;
 }
 
-execute_tac :: (codes: TAC[]*) -> s64[] {
-  results := #make(s64[], codes.length + 1);
+execute_tac :: (codes: TAC[]*) -> Operand[] {
+  values := #make(Operand[], codes.length + 1);
+  stack_ptr: u16 = 0;
+  stack: Operand[65536];
+  return_address: s64;
   ip: s64;
 
   while ip < codes.length {
     code := (*codes)[ip];
-    if code.op == .Halt then break;
+    
+    if code.op == .Halt 
+      then break;
+    
+    push :: (value: Operand) {
+      stack[stack_ptr] = value;
+      stack_ptr++;
+      if stack_ptr >= 65536 {
+        printf("Stack overflow in bitcode interpreter.\n");
+        exit(1);
+      }
+    }
+    
+    pop :: () -> Operand {
+      stack_ptr--;
+      value := stack[stack_ptr];
+      return value;
+    }
+    
+    // Stack && Functions
+    {
+      switch code.op {
+        .Push: {
+          push(get_value(code.left, &values));
+          continue;
+        }
+        .Pop: {
+          values[code.destination] = pop();
+          continue;
+        }
+        .Call: {
+          address := get_value(code.left, &values);
+          push(make_int_operand(ip));
+          ip = address.value.v_int;
+          return_address = code.destination;
+          continue;
+        }
+        .Return: {
+          values[return_address] = pop();
+          value := pop();
+          if value.type != .Integer {
+            ip = value.value.v_int;
+          } else {
+            printf("Attempted to pop an instruction pointer address off the stack that wasn't an integer\n");
+            exit(1);
+          }
+          continue;
+        }
+        .ReturnVoid: {
+          value := pop();
+          if value.type != .Integer {
+            ip = value.value.v_int;
+          } else {
+            printf("Attempted to pop an instruction pointer address off the stack that wasn't an integer\n");
+            exit(1);
+          }
+          return_address = -1;
+          continue;
+        }
+      }
+    }
 
     // Control flow
     {
@@ -28,70 +88,128 @@ execute_tac :: (codes: TAC[]*) -> s64[] {
           continue;
         }
         .BrEq:  {
-          target := get_value(code.left, &results);
-          expected := get_value(code.right, &results);
-          if target == expected {
+          target := get_value(code.left, &values);
+          expected := get_value(code.right, &values);
+          
+          equals := false;
+          if target.type == .Integer && expected.type == .Integer {
+            equals = target.value.v_int == expected.value.v_int;
+          } else if target.type == .Float && expected.type == .Float {
+            equals = target.value.v_float == expected.value.v_float;
+          }
+          
+          if equals {
             ip = code.destination;
             continue;
           }
         }
         .BrNeq: {
-          target := get_value(code.left, &results);
-          expected := get_value(code.right, &results);
-          if target != expected {
+          target := get_value(code.left, &values);
+          expected := get_value(code.right, &values);
+          
+          equals := false;
+          if target.type == .Integer && expected.type == .Integer {
+            equals = target.value.v_int != expected.value.v_int;
+          } else if target.type == .Float && expected.type == .Float {
+            equals = target.value.v_float != expected.value.v_float;
+          }
+          
+          if equals {
             ip = code.destination;
             continue;
           }
         }
         .BrLt:  {
-          target := get_value(code.left, &results);
-          expected := get_value(code.right, &results);
-          if target < expected {
+          target := get_value(code.left, &values);
+          expected := get_value(code.right, &values);
+          equals := false;
+          if target.type == .Integer && expected.type == .Integer {
+            equals = target.value.v_int < expected.value.v_int;
+          } else if target.type == .Float && expected.type == .Float {
+            equals = target.value.v_float < expected.value.v_float;
+          }
+          
+          if equals {
             ip = code.destination;
             continue;
           }
         }
         .BrGt:  {
-          target := get_value(code.left, &results);
-          expected := get_value(code.right, &results);
-          if target > expected {
+          target := get_value(code.left, &values);
+          expected := get_value(code.right, &values);
+          equals := false;
+          
+          if target.type == .Integer && expected.type == .Integer {
+            equals = target.value.v_int > expected.value.v_int;
+          } else if target.type == .Float && expected.type == .Float {
+            equals = target.value.v_float > expected.value.v_float;
+          }
+          
+          if equals {
             ip = code.destination;
             continue;
           }
         }
       }
-      
     }
 
     // Binary operations
     {
-      lvalue: s64 = get_value(code.left, &results);
-      rvalue: s64 = get_value(code.right, &results);
+      lvalue := get_value(code.left, &values);
+      rvalue := get_value(code.right, &values);
       
       switch code.op {
-        .Assign: { results[code.destination] = get_value(code.left, &results); }
-        .Add: { results[code.destination] = lvalue + rvalue; }
-        .Sub: { results[code.destination] = lvalue - rvalue; }
-        .Div: { results[code.destination] = lvalue / rvalue; }
-        .Mul: { results[code.destination] = lvalue * rvalue; }
+        .Assign: { 
+          values[code.destination] = get_value(code.left, &values);
+        }
+        .Add: { 
+          if lvalue.type == .Integer && rvalue.type == .Integer {
+            values[code.destination] = make_int_operand(lvalue.value.v_int + rvalue.value.v_int);
+          } else if lvalue.type == .Float && rvalue.type == .Float {
+            values[code.destination] = make_float_operand(lvalue.value.v_float + rvalue.value.v_float);
+          }
+        }
+        .Sub: {
+          if lvalue.type == .Integer && rvalue.type == .Integer {
+            values[code.destination] = make_int_operand(lvalue.value.v_int - rvalue.value.v_int);
+          } else if lvalue.type == .Float && rvalue.type == .Float {
+            values[code.destination] = make_float_operand(lvalue.value.v_float - rvalue.value.v_float);
+          }
+        }
+        .Div: { 
+          if lvalue.type == .Integer && rvalue.type == .Integer {
+            values[code.destination] = make_int_operand(lvalue.value.v_int / rvalue.value.v_int);
+          } else if lvalue.type == .Float && rvalue.type == .Float {
+            values[code.destination] = make_float_operand(lvalue.value.v_float / rvalue.value.v_float);
+          }
+        }
+        .Mul: { 
+          if lvalue.type == .Integer && rvalue.type == .Integer {
+            values[code.destination] = make_int_operand(lvalue.value.v_int * rvalue.value.v_int);
+          } else if lvalue.type == .Float && rvalue.type == .Float {
+            values[code.destination] = make_float_operand(lvalue.value.v_float * rvalue.value.v_float);
+          }
+        }
       }
     }
+    
     ip++;
   }
-  return results;
+  
+  return values;
 }
 
 test_while_loop :: () -> TAC[] {
   codes: TAC[];
 
   /* 
-    MOV EAX, 0
-  BEGIN_LOOP:
-    JLT 100, LOOP_BODY
-    HLT
-  LOOP_BODY:
-    ADD EAX, 1
-    JUMP BEGIN_LOOP
+      MOV EAX, 0
+    BEGIN_LOOP:
+      JLT 100, LOOP_BODY
+      HLT
+    LOOP_BODY:
+      ADD EAX, 1
+      JUMP BEGIN_LOOP
    */
 
   //? [0]
@@ -127,11 +245,10 @@ main :: () {
   get_operator_names();
 
   codes := test_while_loop();
-
-  results := execute_tac(&codes);
+  values := execute_tac(&codes);
 
   i : int;
-  for result; results {
+  for result; values {
     println($"result: {i}={result}");
     i++;
   }
