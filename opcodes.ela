@@ -28,35 +28,35 @@ get_operator_names :: () {
   }
 }
 
-OperandValue :: union {
+ValueUnion :: union {
   v_float: float64;
   v_int: s64;
   // refers another code.
   v_reference: s64;
 }
 
-OperandTag :: enum {
+ValueTag :: enum {
   Reference,
   Integer,
   Float,
   Alloc,
 }
 
-Operand :: struct {
+Value :: struct {
   type: int;
-  value: OperandValue;
+  value: ValueUnion;
   to_string :: () -> string {
-    if type == OperandTag.Integer {
+    if type == ValueTag.Integer {
       return $"{value.v_int}";
-    } else if type == OperandTag.Reference {
+    } else if type == ValueTag.Reference {
       return $"*{value.v_reference}";
     } 
-    return "Invalid Operand";
+    return "Invalid Value";
   }
 }
 
-get_value :: (op : Operand, results: Operand[]*) -> Operand {
-  if op.type == OperandTag.Reference {
+get_value :: (op : Value, results: Value[]*) -> Value {
+  if op.type == ValueTag.Reference {
     return (*results)[op.value.v_reference];
   } else {
     return op;
@@ -64,8 +64,8 @@ get_value :: (op : Operand, results: Operand[]*) -> Operand {
 }
 
 TAC :: struct {
-  left: Operand;
-  right: Operand;
+  left: Value;
+  right: Value;
   destination: s64;
   op: s32;
   to_string :: () -> string {
@@ -73,34 +73,34 @@ TAC :: struct {
   }
 }
 
-make_float_operand :: (f: float64) -> Operand {
-  value: OperandValue;
+make_float_operand :: (f: float64) -> Value {
+  value: ValueUnion;
   value.v_float = f;
   return {
-    OperandTag.Float,
+    ValueTag.Float,
     value
   };
 }
 
-make_int_operand :: (i: s64) -> Operand {
-  value: OperandValue;
+make_int_operand :: (i: s64) -> Value {
+  value: ValueUnion;
   value.v_int = i;
   return {
-    OperandTag.Integer,
+    ValueTag.Integer,
     value
   };
 }
 
-make_ref_operand :: (dest: s64) -> Operand {
-  value: OperandValue;
+make_ref_operand :: (dest: s64) -> Value {
+  value: ValueUnion;
   value.v_reference = dest;
   return {
-    OperandTag.Reference,
+    ValueTag.Reference,
     value
   };
 }
 
-make_assign :: (value: Operand, destination: s64) -> TAC {
+make_assign :: (value: Value, destination: s64) -> TAC {
   code: TAC;
   code.left = value;
   code.op = .Assign;
@@ -108,7 +108,7 @@ make_assign :: (value: Operand, destination: s64) -> TAC {
   return code;
 }
 
-make_binary :: (destination: s64, op: int, left: Operand, right: Operand) -> TAC {
+make_binary :: (destination: s64, op: int, left: Value, right: Value) -> TAC {
   code: TAC;
   code.left = left;
   code.right = right;
@@ -130,7 +130,7 @@ make_unary :: (destination: s64, op: int) -> TAC {
   return code;
 }
 
-make_push :: (operand: Operand) -> TAC {
+make_push :: (operand: Value) -> TAC {
   code: TAC;
   code.op = .Push;
   code.left = operand;
@@ -144,7 +144,7 @@ make_pop :: (destination: s64) -> TAC {
   return code;
 }
 
-make_call :: (address: Operand, return_addr: s64) -> TAC {
+make_call :: (address: Value, return_addr: s64) -> TAC {
   code: TAC;
   code.left = address;
   code.destination = return_addr;

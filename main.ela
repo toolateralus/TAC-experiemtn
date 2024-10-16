@@ -9,10 +9,10 @@ get_destination :: () -> s64 {
   return current_destination++;
 }
 
-execute_tac :: (codes: TAC[]*) -> Operand[] {
-  values := #make(Operand[], codes.length + 1);
+execute_tac :: (codes: TAC[]*) -> Value[] {
+  values := #make(Value[], codes.length + 1);
   stack_ptr: u16 = 0;
-  stack: Operand[65536];
+  stack: Value[65536];
   return_address: s64;
   ip: s64;
 
@@ -22,7 +22,7 @@ execute_tac :: (codes: TAC[]*) -> Operand[] {
     if code.op == .Halt 
       then break;
     
-    push :: (value: Operand) {
+    push :: (value: Value) {
       stack[stack_ptr] = value;
       stack_ptr++;
       if stack_ptr >= 65536 {
@@ -31,7 +31,7 @@ execute_tac :: (codes: TAC[]*) -> Operand[] {
       }
     }
     
-    pop :: () -> Operand {
+    pop :: () -> Value {
       stack_ptr--;
       value := stack[stack_ptr];
       return value;
