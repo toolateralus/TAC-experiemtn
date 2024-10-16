@@ -8,20 +8,26 @@ current_destination: s64;
                         // Arguments.
 #alias NativeFunction :: Value(Value[]*, Value[]*)*;
 
-// This is a map because we use negative indices.
-native_functions: NativeFunction[];
-
 print :: (args: Value[]*, address_space: Value[]*) -> Value {
   value: Value;
   for arg; *args {
-    print($"{get_value(arg, address_space)}");
+    println($"{get_value(arg, address_space)}");
   }
   return value;
 }
 
-init_native_functions :: () {
-  native_functions ~= &print; // * This never gets called but since we use negative indices turned absolute theres' no way to access 0 index.
-  native_functions ~= &print;
+abs :: (args: Value[]*, address_space: Value[]*) -> Value {
+  arg := ~(*args);
+  println($"arg: {arg}");  
+  if arg.type == .Integer {
+    return make_int_operand(abs(arg.value.v_int));
+  } else if arg.type == .Float {
+    return make_float_operand(fabs(arg.value.v_float));
+  } else {
+    println("Cannot use 'abs' on non-numerical types");
+    exit(1);
+    return {};
+  }
 }
 
 get_destination :: () -> s64 {
@@ -29,6 +35,17 @@ get_destination :: () -> s64 {
 }
 
 execute_tac :: (codes: TAC[]*) -> Value[] {
+  // This is a map because we use negative indices.
+  
+  native_functions: NativeFunction[];
+  init_native_functions :: () {
+    native_functions ~= &print; // * This never gets called but since we use negative indices turned absolute theres' no way to access 0 index.
+    native_functions ~= &print;
+    native_functions ~= &abs;
+  }
+  
+  init_native_functions();
+  
   values := #make(Value[], codes.length);
   
   stack_ptr: u16 = 0;
@@ -60,7 +77,7 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
     if func {
       arguments : Value[];
       while argument_stack_ptr > 0 {
-        arguments ~= argument_stack[argument_stack_ptr];
+        arguments ~= get_value(argument_stack[argument_stack_ptr], &values);
         argument_stack_ptr--;
       }
       value := func(&arguments, &values);
@@ -76,7 +93,6 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
     code := (*codes)[ip];
     
     if code.op == .Halt then break;
-    
     
     // Stack && Functions
     if is_stack_or_function_operator(code.op) {
@@ -270,18 +286,25 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
   return values;
 }
 
+print_id := -1;
+abs_id := -2;
+
 test_while_loop :: () -> TAC[] {
   codes: TAC[];
 
   /* 
+  
       MOV EAX, 0
+      
     BEGIN_LOOP:
       JLT 100, LOOP_BODY
       HLT
+      
     LOOP_BODY:
       ADD EAX, 1
       JUMP BEGIN_LOOP
-   */
+      
+  */
 
   //? [0]
   //* i = 0;
@@ -305,11 +328,13 @@ test_while_loop :: () -> TAC[] {
     make_int_operand(1) // add 1 to *0;
   );
   
+  //? [4]
   codes ~= make_push_arg(make_ref_operand(0));
   
-  codes ~= make_call(make_int_operand(-1), 4);
+  //? [5]
+  codes ~= make_call(make_int_operand(abs_id), 0);
 
-  //? [4]
+  //? [6]
   //* Jump back to the condition check
   codes ~= make_unary(1, .Jump);
 
@@ -318,7 +343,6 @@ test_while_loop :: () -> TAC[] {
 
 main :: () {
   get_operator_names();
-  init_native_functions();
   codes := test_while_loop();
   values := execute_tac(&codes);
   i : int;

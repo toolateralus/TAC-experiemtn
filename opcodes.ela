@@ -39,7 +39,6 @@ is_stack_or_function_operator :: (op: int) -> bool {
   return op >= .Push && op <= .ReturnVoid;
 }
 
-
 operator_names: string[];
  
 get_operator_names :: () {
@@ -57,10 +56,9 @@ ValueUnion :: union {
 }
 
 ValueTag :: enum {
-  Reference,
   Integer,
   Float,
-  Alloc,
+  Reference,
 }
 
 Value :: struct {
