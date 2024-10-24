@@ -3,50 +3,57 @@
 
 TType :: enum {
   Invalid,
+  Eof,
   Identifier,
-
   // Literals
   Integer,
   String,
-
-  // Operators.
-  Range,
 
   LParen,
   RParen,
   LCurly,
   RCurly,
-  LBrace,
-  RBrace,
 
-  Colon,
-  DoubleColon,
   Semi,
 
   Add,
   Sub,
   Mul,
   Div,
-  Eof = -1,
+  Assign,
+  
+  /* Comparison operators. */
+  Equals,
+  NotEquals,
+  LessThan,
+  LessThanEquals,
+  GreaterThan,
+  GreaterThanEquals,
+  LogicalOr,
+  LogicalAnd,
+  
+  
+  /* Unary operators */
+  LogicalNot,
+  Not,
+  
+  /* Bitwise operators */
+  ShiftLeft,
+  ShiftRight,
+  And,
+  Or,
 }
 
-ttype_name_cache: string[TType.Div];
-
-get_ttype_names :: () {
-  type := #type TType;
-  for i in 0..TType.Div {
-    ttype_name_cache[i] = type.fields[i].name;
-  }
-}
+ttype_name_cache: string[];
 
 Token :: struct {
   value:        InternedString;
   line:         s64;
   column:       s64;
-  type:         int = -1;
+  type:         int = 0;
   
   to_string :: () -> string {
-    return $"value: --{value.get_string_value()}--, line: {line}, column: {column}, (type: {ttype_name_cache[type]} :: {type})";
+    return $"value: - {value.get_string_value()} -, line: {line}, column: {column}, (type: {ttype_name_cache[type]} :: {type})";
   }
 }
 
@@ -70,39 +77,106 @@ make_operator :: (slice: string, line: s64, column) -> Token {
   token.value = #make(InternedString, slice);
   token.line = line;
   token.column = column;
-
+  
   token.type = switch slice {
-    string{"::"}: { return .DoubleColon; }
-    string{".."}: { return .Range; }
-    string{"+"}:  { return .Add; }
-    string{"-"}:  { return .Sub; }
-    string{"/"}:  { return .Div; }
-    string{"*"}:  { return .Mul; }
-    string{":"}:  { return .Colon; }
-    string{"("}:  { return .LParen; }
-    string{")"}:  { return .RParen; }
-    string{"["}:  { return .LBrace; }
-    string{"]"}:  { return .RBrace; }
-    string{"{"}:  { return .LCurly; }
-    string{"}"}:  { return .RCurly; }
-    string{";"}:  { return .Semi; }
+    string{"|"}:   { return .Or; }
+    string{"&"}:   { return .And; }
+    string{"&&"}:   { return .LogicalAnd; }
+    string{"||"}:   { return .LogicalOr; }
+    string{"<<"}:   { return .ShiftLeft; }
+    string{">>"}:   { return .ShiftRight; }
+    string{"~"}:  { return .Not; }
+    string{"!"}:  { return .LogicalNot; }
+    
+    string{"=="}:  { return .Equals; }
+    string{"!="}:  { return .NotEquals; }
+    string{"<"}:   { return .LessThan; }
+    string{"<="}:  { return .LessThanEquals; }
+    string{">"}:   { return .GreaterThan; }
+    string{">="}:  { return .GreaterThanEquals; }
+    string{"+"}:   { return .Add; }
+    string{"-"}:   { return .Sub; }
+    string{"/"}:   { return .Div; }
+    string{"*"}:   { return .Mul; }
+    string{"="}:   { return .Assign; }
+    string{"("}:   { return .LParen; }
+    string{")"}:   { return .RParen; }
+    string{"{"}:   { return .LCurly; }
+    string{"}"}:   { return .RCurly; }
+    string{";"}:   { return .Semi; }
   }
+  
   return token;
+}
+
+LookaheadBuffer :: struct {
+  buffer: Token[8];
+  index: int;
+  push :: (token: Token) {
+    if index >= 8 {
+      printf("Pushed too many tokens into the lookahead buffer");
+    }
+    
+    buffer[index] = token;
+    index++;
+  }
+  pop :: () -> Token {
+    if index <= 0 {
+      printf("Popped empty lookahead buffer\n");
+      exit(1);
+    }
+    
+    token := buffer[0];
+    for i in 0..(index-1) {
+      buffer[i] = buffer[i + 1];
+    }
+    index--;
+    return token;
+  }
+  
+  #operator([]) :: (n: int) -> Token {
+    return buffer[n];
+  }
 }
 
 Lexer :: struct {
   #ctor :: (input: string) {
     this.input = input;
     length = input.length;
+    
+    type := #type(TType);
+    for field; type.fields {
+      ttype_name_cache ~= field.name;
+    }
   }
 
-  position:     int;
-  line:         s64       = 1;
-  column:       s64       = 1;
-  input:        string;
-  length:       s64;
-
-  get_token :: () -> Token {
+  position : int;
+  line     : s64       = 1;
+  column   : s64       = 1;
+  input    : string;
+  length   : s64;
+  buffer   : LookaheadBuffer;
+  in_fill  : bool;
+  
+  peek :: (n: int = 0) -> Token {
+    return buffer[n];
+  }
+  
+  eat :: () -> Token {
+    
+    while !in_fill && buffer.index < 8 {
+      in_fill = true;
+      buffer.push(eat());
+      in_fill = false;
+    }
+    
+    if !in_fill {
+      if buffer[0].type == .Eof {
+        return token_eof();
+      }
+      return buffer.pop();
+    }
+    
     if position >= length
       then return token_eof();
 
@@ -122,7 +196,7 @@ Lexer :: struct {
       start := position;
 
       get_slice :: () -> string {
-        return #make(string, &input[start], &input[position]);
+        return {&input[start], &input[position]};
       }
 
       advance :: () {
@@ -174,26 +248,10 @@ Lexer :: struct {
         return get_longest_matching_operator();
       } else {
         printf("Failed to lex character: %c\n", c);
+        exit(1);
       }
     }
 
     return token_eof();
   }
 }
-
-// main :: () {
-//   get_ttype_names();
-//   lexer := #make(Lexer, "fn xaryu(int n){ return 0; }");
-//   i: int;
-//   while true {
-//     tok := lexer.get_token();
-
-//     if tok.type == .Eof
-//       then break;
-
-//     println(tok.to_string());
-//     i++;
-//   }
-//   println($"lexed {i} tokens");
-// }
-

@@ -1,0 +1,106 @@
+#import interned_string;
+#import core;
+#import memory;
+
+#include "lexer.ela";
+
+MB :: (n: u64) -> u64 {
+  return n * 1024 * 1024;
+}
+
+allocator : Arena = {MB(100), .AlignAllocations | .OutOfMemory};
+
+AST :: struct;
+
+alloc :: () -> AST* {
+  return (AST*)allocator.allocate(sizeof(AST*));
+}
+
+throw_error :: (msg: char*) {
+  printf("%s\n", msg);
+  exit(1);
+}
+
+NodeType :: enum {
+  NodeIdentifier,
+  NodeNumber,
+  NodeString,
+  NodeBool,
+  NodeBlock,
+}
+
+ASTUnion :: union {
+  // identifier
+  #anon :: struct {
+    _iden: InternedString;
+  }
+  // string
+  #anon :: struct {
+    _string: InternedString;
+  }
+  // number
+  #anon :: struct {
+    _number: float64;
+  }
+  // boolean
+  #anon :: struct {
+    _bool: bool;
+  }
+  // block
+  #anon :: struct {
+    _block: AST*[];
+  }
+  #dtor :: () {}
+}
+
+AST :: struct {
+  type: int;
+  value: ASTUnion;
+  #dtor :: () {
+    if type == NodeType.NodeBlock {
+      destruct(value._block);
+    }
+  }
+}
+
+parse_statement :: (lexer: Lexer*) -> AST* {
+  node := alloc();
+  tok := lexer.eat();
+  return node;
+}
+
+parse_block :: (lexer: Lexer*) -> AST* {
+  block := alloc();
+  block.type = .NodeBlock;
+  
+  while true {
+    tok := lexer.peek(0);
+    if tok.type == .RCurly ||
+       tok.type == .Eof then break;
+    block.value._block ~= parse_statement(lexer);
+  }
+  
+  return block;
+}
+
+#test parser_main :: () {
+  println("");
+  lexer := Lexer { 
+    string{"n = 100 * 20 / 30 || 15 && "}
+  };
+  
+  statements := AST*[]{};
+  while true {
+    token := lexer.eat();
+    println($"in_program: {token}");
+    
+    switch token.type {
+      .Invalid: { throw_error("Error parsing: encountered invalid token."); }
+      .LCurly: { 
+        statements ~= parse_block(&lexer);
+      }
+      .Semi: { continue; }
+      .Eof: { break; }
+    }
+  }
+}

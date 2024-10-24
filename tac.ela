@@ -18,7 +18,7 @@ print :: (args: Value[]*, address_space: Value[]*) -> Value {
 
 abs :: (args: Value[]*, address_space: Value[]*) -> Value {
   arg := ~(*args);
-  println($"arg: {arg}");  
+  println($"arg: {arg}");
   if arg.type == .Integer {
     return make_int_operand(abs(arg.value.v_int));
   } else if arg.type == .Float {
@@ -36,27 +36,27 @@ get_destination :: () -> s64 {
 
 execute_tac :: (codes: TAC[]*) -> Value[] {
   // This is a map because we use negative indices.
-  
+
   native_functions: NativeFunction[];
   init_native_functions :: () {
     native_functions ~= &print; // * This never gets called but since we use negative indices turned absolute theres' no way to access 0 index.
     native_functions ~= &print;
     native_functions ~= &abs;
   }
-  
+
   init_native_functions();
-  
+
   values := #make(Value[], codes.length);
-  
+
   stack_ptr: u16 = 0;
   stack: Value[65536];
   return_address: s64;
-  
+
   argument_stack: Value[256];
   argument_stack_ptr: u8;
-  
+
   ip: s64;
-  
+
   push :: (value: Value) {
     stack[stack_ptr] = value;
     stack_ptr++;
@@ -65,13 +65,13 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
       exit(1);
     }
   }
-  
+
   pop :: () -> Value {
     stack_ptr--;
     value := stack[stack_ptr];
     return value;
   }
-  
+
   call_native_function :: (addr: s64) {
     func : NativeFunction = native_functions[addr];
     if func {
@@ -91,9 +91,9 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
 
   while ip < codes.length {
     code := (*codes)[ip];
-    
+
     if code.op == .Halt then break;
-    
+
     // Stack && Functions
     if is_stack_or_function_operator(code.op) {
       switch code.op {
@@ -162,14 +162,14 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
         .BrEq:  {
           target := get_value(code.left, &values);
           expected := get_value(code.right, &values);
-          
+
           equals := false;
           if target.type == .Integer && expected.type == .Integer {
             equals = target.value.v_int == expected.value.v_int;
           } else if target.type == .Float && expected.type == .Float {
             equals = target.value.v_float == expected.value.v_float;
           }
-          
+
           if equals {
             ip = code.destination;
             continue;
@@ -178,14 +178,14 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
         .BrNeq: {
           target := get_value(code.left, &values);
           expected := get_value(code.right, &values);
-          
+
           equals := false;
           if target.type == .Integer && expected.type == .Integer {
             equals = target.value.v_int != expected.value.v_int;
           } else if target.type == .Float && expected.type == .Float {
             equals = target.value.v_float != expected.value.v_float;
           }
-          
+
           if equals {
             ip = code.destination;
             continue;
@@ -200,7 +200,7 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
           } else if target.type == .Float && expected.type == .Float {
             equals = target.value.v_float < expected.value.v_float;
           }
-          
+
           if equals {
             ip = code.destination;
             continue;
@@ -210,13 +210,13 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
           target := get_value(code.left, &values);
           expected := get_value(code.right, &values);
           equals := false;
-          
+
           if target.type == .Integer && expected.type == .Integer {
             equals = target.value.v_int > expected.value.v_int;
           } else if target.type == .Float && expected.type == .Float {
             equals = target.value.v_float > expected.value.v_float;
           }
-          
+
           if equals {
             ip = code.destination;
             continue;
@@ -226,12 +226,12 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
     } else if is_binary_operator(code.op) {
       lvalue := get_value(code.left, &values);
       rvalue := get_value(code.right, &values);
-      
+
       switch code.op {
-        .Assign: { 
+        .Assign: {
           values[code.destination] = get_value(code.left, &values);
         }
-        .Add: { 
+        .Add: {
           if lvalue.type == .Integer && rvalue.type == .Integer {
             values[code.destination] = make_int_operand(lvalue.value.v_int + rvalue.value.v_int);
           } else if lvalue.type == .Float && rvalue.type == .Float {
@@ -253,7 +253,7 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
             values[code.destination] = make_float_operand(lvalue.value.v_float - rvalue.value.v_int);
           }
         }
-        .Mul: { 
+        .Mul: {
           if lvalue.type == .Integer && rvalue.type == .Integer {
             values[code.destination] = make_int_operand(lvalue.value.v_int * rvalue.value.v_int);
           } else if lvalue.type == .Float && rvalue.type == .Float {
@@ -264,7 +264,7 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
             values[code.destination] = make_float_operand(lvalue.value.v_float * rvalue.value.v_int);
           }
         }
-        .Div: { 
+        .Div: {
           if lvalue.type == .Integer && rvalue.type == .Integer {
             values[code.destination] = make_int_operand(lvalue.value.v_int / rvalue.value.v_int);
           } else if lvalue.type == .Float && rvalue.type == .Float {
@@ -279,10 +279,10 @@ execute_tac :: (codes: TAC[]*) -> Value[] {
     } else {
       printf("Recieved an invalid operation... %s\n", operator_names[code.op].data);
     }
-    
+
     ip++;
   }
-  
+
   return values;
 }
 
@@ -292,18 +292,18 @@ abs_id := -2;
 test_while_loop :: () -> TAC[] {
   codes: TAC[];
 
-  /* 
-  
+  /*
+
       MOV EAX, 0
-      
+
     BEGIN_LOOP:
       JLT 100, LOOP_BODY
       HLT
-      
+
     LOOP_BODY:
       ADD EAX, 1
       JUMP BEGIN_LOOP
-      
+
   */
 
   //? [0]
@@ -327,10 +327,10 @@ test_while_loop :: () -> TAC[] {
     make_ref_operand(0),
     make_int_operand(1) // add 1 to *0;
   );
-  
+
   //? [4]
   codes ~= make_push_arg(make_ref_operand(0));
-  
+
   //? [5]
   codes ~= make_call(make_int_operand(abs_id), 0);
 
