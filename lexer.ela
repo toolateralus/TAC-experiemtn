@@ -1,25 +1,35 @@
 #import core;
 #import interned_string;
 
+ttype_name_cache: string[];
+
 TType :: enum {
   Invalid,
   Eof,
   Identifier,
-  // Literals
+  /* 
+    * Literals
+  */
   Integer,
   String,
 
-  LParen,
-  RParen,
+  /* 
+    * Punctuation 
+  */
   LCurly,
   RCurly,
-
+  LParen,
+  RParen,
   Semi,
 
+  /* 
+    * Operators 
+  */
   Add,
   Sub,
   Mul,
   Div,
+  Modulo,
   Assign,
   
   /* Comparison operators. */
@@ -32,28 +42,40 @@ TType :: enum {
   LogicalOr,
   LogicalAnd,
   
-  
-  /* Unary operators */
-  LogicalNot,
-  Not,
-  
   /* Bitwise operators */
   ShiftLeft,
   ShiftRight,
   And,
   Or,
+  Xor,
+    
+  /* Unary operators */
+  LogicalNot,
+  Not,
 }
 
-ttype_name_cache: string[];
+is_operator :: (type: int) -> bool {
+  return type >= .Add && type <= .Not;
+}
+
+is_binary_operator :: (type: int) -> bool { 
+  return type >= .Add && type <= .Xor;
+}
+
+is_unary_operator :: (type: int) -> bool {
+  return type >= .LogicalNot && type <= .Not;
+}
+
 
 Token :: struct {
   value:        InternedString;
+  filename:     InternedString;
   line:         s64;
   column:       s64;
   type:         int = 0;
   
   to_string :: () -> string {
-    return $"value: - {value.get_string_value()} -, line: {line}, column: {column}, (type: {ttype_name_cache[type]} :: {type})";
+    return $"value: - {value.value()} -, {filename.value()}:{line}:{column}, (type: {ttype_name_cache[type]} :: {type})";
   }
 }
 
@@ -63,31 +85,29 @@ token_eof :: () -> Token {
   return tok;
 }
 
-make_token :: (slice: string, line: s64, column, type: int) -> Token {
+make_token :: (slice: string, line: s64, column, type: int, filename: InternedString) -> Token {
   token: Token;
   token.value = #make(InternedString, slice);
   token.line = line;
   token.column = column;
   token.type = type;
+  token.filename = filename;
   return token;
 }
 
-make_operator :: (slice: string, line: s64, column) -> Token {
+make_operator :: (slice: string, line: s64, column, filename: InternedString) -> Token {
   token: Token;
   token.value = #make(InternedString, slice);
   token.line = line;
   token.column = column;
+  token.filename = filename;
   
   token.type = switch slice {
-    string{"|"}:   { return .Or; }
-    string{"&"}:   { return .And; }
+    
     string{"&&"}:   { return .LogicalAnd; }
     string{"||"}:   { return .LogicalOr; }
     string{"<<"}:   { return .ShiftLeft; }
     string{">>"}:   { return .ShiftRight; }
-    string{"~"}:  { return .Not; }
-    string{"!"}:  { return .LogicalNot; }
-    
     string{"=="}:  { return .Equals; }
     string{"!="}:  { return .NotEquals; }
     string{"<"}:   { return .LessThan; }
@@ -99,6 +119,12 @@ make_operator :: (slice: string, line: s64, column) -> Token {
     string{"/"}:   { return .Div; }
     string{"*"}:   { return .Mul; }
     string{"="}:   { return .Assign; }
+    string{"~"}:  { return .Not; }
+    string{"!"}:  { return .LogicalNot; }
+    string{"%"}:   { return .Modulo; }
+    string{"^"}:   { return .Xor; }
+    string{"|"}:   { return .Or; }
+    string{"&"}:   { return .And; }
     string{"("}:   { return .LParen; }
     string{")"}:   { return .RParen; }
     string{"{"}:   { return .LCurly; }
@@ -140,8 +166,9 @@ LookaheadBuffer :: struct {
 }
 
 Lexer :: struct {
-  #ctor :: (input: string) {
+  #ctor :: (input: string, filename) {
     this.input = input;
+    this.filename = #make(InternedString, filename);
     length = input.length;
     
     type := #type(TType);
@@ -154,6 +181,7 @@ Lexer :: struct {
   line     : s64       = 1;
   column   : s64       = 1;
   input    : string;
+  filename : InternedString;
   length   : s64;
   buffer   : LookaheadBuffer;
   in_fill  : bool;
@@ -182,6 +210,11 @@ Lexer :: struct {
 
     while position < length {
       c : char = input[position];
+      
+      if c == 0 {
+        return token_eof();
+      }
+      
       if c == #char "\n" {
         column = 1;
         position++;
@@ -216,7 +249,7 @@ Lexer :: struct {
         while position < length && ispunct(c) {
           advance();
           slice := get_slice();
-          match := make_operator(slice, line, column);
+          match := make_operator(slice, line, column, filename);
           if match.type != .Invalid {
             last_match = match;
           } else {
@@ -231,27 +264,43 @@ Lexer :: struct {
         }
         return last_match;
       }
-
+    
       if isalpha(c) {
-        while position < length && isalpha(c) || c == #char "_" {
+        while position < length && isalpha(c) || c == #char "_" || isdigit(c) {
           advance();
         }
         slice := get_slice();
-        return make_token(slice, line, column, .Identifier);
+        return make_token(slice, line, column, .Identifier, filename);
       } else if isdigit(c) {
         while position < length && isdigit(c) || c == #char "_" {
           advance();
         }
         slice := get_slice();
-        return make_token(slice, line, column, .Integer);
+        return make_token(slice, line, column, .Integer, filename);
       } else if ispunct(c) {
         return get_longest_matching_operator();
       } else {
-        printf("Failed to lex character: %c\n", c);
+        str : char[2];
+        str[0] = c;
+        str[1] = #char "\0";
+        printf("Failed to lex character: int='%d', char='%c' | str='%s'\n", c, c, (char*)str);
+        println("\e[033mNote: if the single quotes are empty, we couldn't print this character or string\e[0m");
         exit(1);
       }
     }
 
     return token_eof();
+  }
+  
+  expect :: (type: int) -> Token {
+    tok := peek(0);
+    if tok.type == type {
+      return eat();
+    } else {
+      newline := "\n";
+      println($"Unexpected token: {tok}{newline} expeected: {ttype_name_cache[type]}");
+      exit(1);
+      return token_eof();
+    }
   }
 }

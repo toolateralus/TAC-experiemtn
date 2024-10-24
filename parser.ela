@@ -1,6 +1,7 @@
 #import interned_string;
 #import core;
 #import memory;
+#import file;
 
 #include "lexer.ela";
 
@@ -27,6 +28,8 @@ NodeType :: enum {
   NodeString,
   NodeBool,
   NodeBlock,
+  NodeBinary,
+  NodeUnary,
 }
 
 ASTUnion :: union {
@@ -50,6 +53,15 @@ ASTUnion :: union {
   #anon :: struct {
     _block: AST*[];
   }
+  #anon :: struct {
+    bin_left: AST*;
+    bin_right: AST*;
+    bin_op: int;
+  }
+  #anon :: struct {
+    unary_operand: AST*;
+    unary_op: int;
+  }
   #dtor :: () {}
 }
 
@@ -63,41 +75,166 @@ AST :: struct {
   }
 }
 
-parse_statement :: (lexer: Lexer*) -> AST* {
-  node := alloc();
-  tok := lexer.eat();
-  return node;
+OperatorPrecedence :: enum {
+  Lowest,
+  LogicalLow,
+  LogicalHigh
+  CompareLow,
+  CompareHigh,
+  Shift,
+  Sum,
+  Product,
+  Unary,
+  Highest,
+}
+
+get_operator_precedence :: (type: int) -> int {
+  value := switch type {
+    .Add              : { return .Sum; }
+    .Sub              : { return .Sum; }
+    .Mul              : { return .Product; }
+    .Div              : { return .Product; }
+    .Modulo           : { return .Product; }
+    .LogicalOr        : { return .LogicalLow; }
+    .LogicalAnd       : { return .LogicalHigh; }
+    .Equals           : { return .CompareLow; }
+    .NotEquals        : { return .CompareLow; }
+    .LessThan         : { return .CompareHigh; }
+    .LessThanEquals   : { return .CompareHigh; }
+    .GreaterThan      : { return .CompareHigh; }
+    .GreaterThanEquals: { return .CompareHigh; }
+    .ShiftLeft        : { return .Shift; }
+    .ShiftRight       : { return .Shift; }
+    .And              : { return .Lowest; }
+    .Or               : { return .Lowest; }
+    .Xor              : { return .Lowest; }
+    .LogicalNot       : { return .Unary; }
+    .Not              : { return .Unary; }
+  }
+  return value;
+}
+
+parse_expr :: (lexer: Lexer*, precedence: int) -> AST*;
+parse_primary :: (lexer: Lexer*) -> AST* {
+  
+  tok := lexer.peek(0);
+  
+  println($"operand: {tok}");
+  
+  switch tok.type {
+    .LogicalNot: {
+      lexer.eat();
+      operand := parse_primary(lexer);
+      node := alloc();
+      node.type = .NodeUnary;
+      node.value.unary_op = .LogicalNot;
+      node.value.unary_operand = operand;
+      return node;
+    }
+    .Not: {
+      lexer.eat();
+      operand := parse_primary(lexer);
+      node := alloc();
+      node.type = .NodeUnary;
+      node.value.unary_op = .Not;
+      node.value.unary_operand = operand;
+      return node;
+    }
+    .Identifier: {
+      tok := lexer.eat();
+      node := alloc();
+      node.type = .NodeIdentifier;
+      node.value._iden = tok.value;
+      return node;
+    }
+    .Integer: {
+      tok := lexer.eat();
+      node := alloc();
+      node.type = .NodeNumber;
+      node.value._number = atof(tok.value.value().data);
+      return node;
+    }
+    .String: {
+      tok := lexer.eat();
+      node := alloc();
+      node.type = .NodeString;
+      node.value._string = tok.value;
+      return node;
+    }
+    .LParen: {
+      tok := lexer.eat();
+      node := parse_expr(lexer, -1);
+      lexer.expect(.RParen);
+      println($"after parenthesized expression token is : {lexer.peek(0)}");
+      return node;
+    }
+  }
+  throw_error($"Failed to parse primary expression.. got token: {tok}".data);
+  return null;
+}
+
+parse_expr :: (lexer: Lexer*, precedence: int) -> AST* {
+  left := parse_primary(lexer);
+  while true {
+    tok := lexer.peek(0);
+    println($"operator: {tok}");
+    
+    if !is_binary_operator(tok.type) then break;
+    
+    current_prec := get_operator_precedence(tok.type);
+    if current_prec <= precedence {
+      println($"breaking from expr on token: {tok}");
+      break;
+    }
+    lexer.eat();
+    right := parse_expr(lexer, current_prec);
+    new_left := alloc();
+    new_left.type = .NodeBinary;
+    new_left.value.bin_left = left;
+    new_left.value.bin_right = right;
+    new_left.value.bin_op = tok.type;
+    left = new_left;
+  }
+  return left;
 }
 
 parse_block :: (lexer: Lexer*) -> AST* {
   block := alloc();
   block.type = .NodeBlock;
-  
+  expressions: AST*[];
   while true {
     tok := lexer.peek(0);
+    if tok.type == .Semi { 
+      lexer.eat();
+      tok = lexer.peek(0);
+    }
+    
     if tok.type == .RCurly ||
        tok.type == .Eof then break;
-    block.value._block ~= parse_statement(lexer);
+      
+    println($"Parse block entering parse_expr: {tok}");
+    expressions ~= parse_expr(lexer, -1);
   }
-  
+  lexer.expect(.RCurly);
+  block.value._block = expressions;
   return block;
 }
 
 #test parser_main :: () {
   println("");
   lexer := Lexer { 
-    string{"n = 100 * 20 / 30 || 15 && "}
+    file_read_to_string("dummy.ela"),
+    "dummy.ela",
   };
   
-  statements := AST*[]{};
+  expressions := AST*[]{};
   while true {
     token := lexer.eat();
-    println($"in_program: {token}");
     
     switch token.type {
       .Invalid: { throw_error("Error parsing: encountered invalid token."); }
       .LCurly: { 
-        statements ~= parse_block(&lexer);
+        expressions ~= parse_block(&lexer);
       }
       .Semi: { continue; }
       .Eof: { break; }
